@@ -1,13 +1,157 @@
-# Commands
-# Ultimate Command Reference 
+```
+(async () => {
+    const API_KEY = "YOUR_API_KEY_HERE"; 
+    const MODEL = "gemini-pro"; 
 
-An exhaustive and actively maintained reference guide for Git, Bash, Networking, and other command-line tools. This is my personal knowledge base.
+    // --- PHASE 0: MEMORY CHECK (The Persistence Fix) ---
+    // If answers are already saved, just print them and stop.
+    const savedData = sessionStorage.getItem("LMS_ANSWERS");
+    if (savedData) {
+        console.clear();
+        console.log("%c💾 RECOVERED ANSWERS FROM MEMORY", "color: #00ffcc; font-size: 16px; font-weight: bold;");
+        const answers = JSON.parse(savedData);
+        for (const [qNum, answer] of Object.entries(answers)) {
+            console.log(`%c${qNum}: %c${answer}`, "color: yellow; font-weight: bold;", "color: white;");
+        }
+        console.log("%c\n💡 (To clear this memory for a brand new quiz, type this and hit enter: sessionStorage.clear() )", "color: gray; font-style: italic;");
+        return; // Exits the script so it doesn't re-scrape the whole test
+    }
+
+    const navButtons = document.querySelectorAll('.qnbutton');
+    const totalQuestions = navButtons.length;
+    
+    if (totalQuestions === 0) {
+        console.error("❌ No questions found. Are you on the quiz page?");
+        return;
+    }
+
+    const baseUrl = window.location.href.split('&page=')[0];
+    console.log(`🚀 Phase 1: Scraping ${totalQuestions} questions silently...`);
+
+    let scrapedData = "";
+
+    // --- PHASE 1: SCRAPING ---
+    for (let i = 0; i < totalQuestions; i++) {
+        try {
+            const response = await fetch(`${baseUrl}&page=${i}`);
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            
+            const qContainer = doc.querySelector('.que');
+            if (qContainer) {
+                const qText = qContainer.querySelector('.qtext').innerText.trim();
+                const options = Array.from(qContainer.querySelectorAll('.flex-fill.ml-1'))
+                                     .map(opt => opt.innerText.trim());
+                
+                scrapedData += `Q${i + 1}: ${qText}\n`;
+                scrapedData += options.map((o, idx) => `  ${String.fromCharCode(97 + idx)}) ${o}`).join('\n') + "\n\n";
+            }
+        } catch (e) {
+            scrapedData += `Q${i + 1}: Error loading question\n\n`;
+        }
+        await new Promise(r => setTimeout(r, 150)); 
+    }
+
+    console.log("✅ Phase 1 Complete. Extracted data.");
+    console.log(`🧠 Phase 2: Querying ${MODEL} API...`);
+
+    // --- PHASE 2: FETCHING ANSWERS ---
+    try {
+        // The prompt is updated to enforce the "letter + text" format
+        const prompt = `You are an expert solver. Analyze these multiple-choice questions and provide the correct answers. 
+        Return strictly a valid JSON object where keys are the question numbers (e.g., "Q1", "Q2") and values include BOTH the option letter and the exact text (e.g., "c) 45" or "a) Compile Time"). Do not include markdown formatting.
+        
+        Questions:
+        ${scrapedData}`;
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.1 } 
+            })
+        });
+
+        if (!res.ok) {
+            const errText = await res.text();
+            console.error(`❌ Google API Error (${res.status}):`, errText);
+            return; 
+        }
+
+        const data = await res.json();
+        let aiText = data.candidates[0].content.parts[0].text;
+        
+        // Sanitize response
+        aiText = aiText.replace(/```json/gi, '').replace(/```/gi, '').trim();
+        const answers = JSON.parse(aiText);
+
+        // --- DISPLAY & STORE (The Backpack) ---
+        console.clear();
+        console.log("%c🎯 SECURED ANSWERS", "color: #00ffcc; font-size: 16px; font-weight: bold;");
+        
+        for (const [qNum, answer] of Object.entries(answers)) {
+            console.log(`%c${qNum}: %c${answer}`, "color: yellow; font-weight: bold;", "color: white;");
+        }
+        
+        // Saves the data to the browser tab's local storage
+        sessionStorage.setItem("LMS_ANSWERS", JSON.stringify(answers));
+        console.log("%c\n💾 Answers cached in sessionStorage. They will survive page reloads.", "color: gray; font-style: italic;");
+
+    } catch (error) {
+        console.error("❌ Pipeline crashed during Phase 2 processing:", error);
+    }
+})();
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## IPTV Git link
+```
+https://iptv-org.github.io/iptv/index.m3u
+```
+
+
+## To Clear chrome Incognito Catche
+
+1. Close all Incognito Windows (It just clears the session anthe)
+2. Clear DNS Catche
+   Open chrome and type:
+   ```
+   chrome://net-internals/#dns
+   ```
+3. Click on "clear host cache"
+
+### Bonus: In windows
+  ```
+ipconfig/flushdns
+  ```
+
+
+
+# Commands
+## For Command line interface
 
 ---
 
 ## 1. The Golden Rules: How to Discover *Any* Command
-
-Before the lists, here are the master keys. These three commands allow you to learn about **any** other command without leaving the terminal.
 
 * `man <command>`: Shows the official **man**ual page for a command. This is the most detailed documentation. (Press `q` to quit).
 * `<command> --help`: Shows a quick usage summary and a list of common options.
@@ -68,7 +212,7 @@ The complete version control toolkit, from basic commits to advanced history man
 
 ---
 
-## 3. Bash & Linux Commands
+## 3. Bash Commands
 
 The toolkit for navigating and controlling a Linux-based operating system.
 
