@@ -1,20 +1,94 @@
+# Deepscrape Tool
+
+### How to
+1. Open the Quiz page on the LMS.
+2. Press F12 and go to the Console tab.
+3. 
+## Phase 1 (Scrapes Only Question)
+```javascript
+(async () => {
+    const navButtons = document.querySelectorAll('.qnbutton');
+    const totalQuestions = navButtons.length;
+    const baseUrl = window.location.href.split('&page=')[0];
+    
+    console.log(`Starting... Found ${totalQuestions} questions.`);
+
+    let finalOutput = "";
+
+    for (let i = 0; i < totalQuestions; i++) {
+        try {
+            const response = await fetch(`${baseUrl}&page=${i}`);
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            
+            const qContainer = doc.querySelector('.que');
+            if (qContainer) {
+                const qText = qContainer.querySelector('.qtext').innerText.trim();
+                const options = Array.from(qContainer.querySelectorAll('.flex-fill.ml-1'))
+                                     .map(opt => opt.innerText.trim());
+                
+                finalOutput += `Q${i + 1}: ${qText}\n`;
+                finalOutput += options.map((o, idx) => `  ${String.fromCharCode(97 + idx)}) ${o}`).join('\n') + "\n\n";
+            }
+        } catch (e) {
+            finalOutput += `Q${i + 1}: Error loading question\n\n`;
+        }
+        // Minimal delay to keep the connection stable
+        await new Promise(r => setTimeout(r, 150));
+    }
+
+    // Final print to console
+    console.clear();
+    console.log(finalOutput);
+})();
 ```
+
+# Phase 2 (Qstns+Return Ans through API)
+### replace *YOUR_API_KEY_HERE* with ur api key from [API KEY](https://aistudio.google.com/api-keys)
+### Turn on Preserve log in console settings
+```javascript
 (async () => {
     const API_KEY = "YOUR_API_KEY_HERE"; 
-    const MODEL = "gemini-pro"; 
+    const MODEL = "gemini-3-flash-preview"; // Locked to your requested model
 
-    // --- PHASE 0: MEMORY CHECK (The Persistence Fix) ---
-    // If answers are already saved, just print them and stop.
+    // HUD Generator Function
+    function openHUD(data) {
+        const hud = window.open("", "LMS_Answer_HUD", "width=350,height=600,top=100,left=100,scrollbars=yes");
+        if (!hud) {
+            console.error("❌ POPUP BLOCKED! You must allow popups in your browser address bar to see the sticky answers.");
+            return;
+        }
+        
+        let html = `
+            <title>LMS HUD</title>
+            <body style='background:#121212; color:#00ffcc; font-family:consolas, monospace; padding:20px; margin:0;'>
+                <h2 style='color:#fff; margin-top:0;'>🎯 Target Data</h2>
+                <hr style='border:1px solid #333; margin-bottom:20px;'/>
+        `;
+        
+        for (const [qNum, ans] of Object.entries(data)) {
+            html += `<div style='margin-bottom:15px; border-bottom:1px dashed #333; padding-bottom:10px;'>
+                        <strong style='color:yellow; font-size:16px;'>${qNum}:</strong><br/>
+                        <span style='color:white; font-size:14px;'>${ans}</span>
+                     </div>`;
+        }
+        html += `
+                <div style='color:gray; font-size:11px; margin-top:20px;'>
+                    HUD persists independently of LMS navigation. Close this window to clear memory.
+                </div>
+            </body>`;
+            
+        hud.document.open();
+        hud.document.write(html);
+        hud.document.close();
+    }
+
+    // Check Memory First
     const savedData = sessionStorage.getItem("LMS_ANSWERS");
     if (savedData) {
-        console.clear();
-        console.log("%c💾 RECOVERED ANSWERS FROM MEMORY", "color: #00ffcc; font-size: 16px; font-weight: bold;");
-        const answers = JSON.parse(savedData);
-        for (const [qNum, answer] of Object.entries(answers)) {
-            console.log(`%c${qNum}: %c${answer}`, "color: yellow; font-weight: bold;", "color: white;");
-        }
-        console.log("%c\n💡 (To clear this memory for a brand new quiz, type this and hit enter: sessionStorage.clear() )", "color: gray; font-style: italic;");
-        return; // Exits the script so it doesn't re-scrape the whole test
+        console.log("💾 Memory found. Opening Sticky HUD...");
+        openHUD(JSON.parse(savedData));
+        return; 
     }
 
     const navButtons = document.querySelectorAll('.qnbutton');
@@ -26,11 +100,10 @@
     }
 
     const baseUrl = window.location.href.split('&page=')[0];
-    console.log(`🚀 Phase 1: Scraping ${totalQuestions} questions silently...`);
+    console.log(`🚀 Scraping ${totalQuestions} questions silently...`);
 
     let scrapedData = "";
 
-    // --- PHASE 1: SCRAPING ---
     for (let i = 0; i < totalQuestions; i++) {
         try {
             const response = await fetch(`${baseUrl}&page=${i}`);
@@ -52,12 +125,9 @@
         await new Promise(r => setTimeout(r, 150)); 
     }
 
-    console.log("✅ Phase 1 Complete. Extracted data.");
-    console.log(`🧠 Phase 2: Querying ${MODEL} API...`);
+    console.log(`🧠 Querying ${MODEL} API...`);
 
-    // --- PHASE 2: FETCHING ANSWERS ---
     try {
-        // The prompt is updated to enforce the "letter + text" format
         const prompt = `You are an expert solver. Analyze these multiple-choice questions and provide the correct answers. 
         Return strictly a valid JSON object where keys are the question numbers (e.g., "Q1", "Q2") and values include BOTH the option letter and the exact text (e.g., "c) 45" or "a) Compile Time"). Do not include markdown formatting.
         
@@ -82,46 +152,57 @@
         const data = await res.json();
         let aiText = data.candidates[0].content.parts[0].text;
         
-        // Sanitize response
         aiText = aiText.replace(/```json/gi, '').replace(/```/gi, '').trim();
         const answers = JSON.parse(aiText);
 
-        // --- DISPLAY & STORE (The Backpack) ---
-        console.clear();
-        console.log("%c🎯 SECURED ANSWERS", "color: #00ffcc; font-size: 16px; font-weight: bold;");
-        
-        for (const [qNum, answer] of Object.entries(answers)) {
-            console.log(`%c${qNum}: %c${answer}`, "color: yellow; font-weight: bold;", "color: white;");
-        }
-        
-        // Saves the data to the browser tab's local storage
         sessionStorage.setItem("LMS_ANSWERS", JSON.stringify(answers));
-        console.log("%c\n💾 Answers cached in sessionStorage. They will survive page reloads.", "color: gray; font-style: italic;");
+        
+        // Spawn the persistent sticky window
+        openHUD(answers);
+        console.log("✅ HUD deployed. You can now close this console and navigate normally.");
 
     } catch (error) {
-        console.error("❌ Pipeline crashed during Phase 2 processing:", error);
+        console.error("❌ Pipeline crashed:", error);
     }
 })();
 ```
 
+## Phase 3 (Qstns+Ans+Submit)
+```
 
+```
 
+---
 
+# SEB Info
 
+# Important Links:
 
+## [Ollama](https://school-cheating.github.io/ollama)
 
+## [Understanding SEB Patch](https://github.com/school-cheating/SEBPatch/wiki/Instructions)
 
+## [Patch-Documentation](https://github.com/school-cheating/SEBPatch)
 
+## [SEB 3.5 Git Release](https://github.com/SafeExamBrowser/seb-win-refactoring/releases/tag/v3.5.0)
 
+## [SEB 3.5 Sourceforge Relase](https://downloads.sourceforge.net/project/seb/seb/SEB_3.5.0/SEB_3.5.0.544_x86_Setup.msi?ts=gAAAAABo1nRxMunm5wGg1eQdAPbvtga-h0YGtWABigY9tjr0NZyXVjnXyWTPZCjDL-ZSHxqhKwNENpQoCH-8xTreIAVEKTMcDA%3D%3D&use_mirror=master&r=https%3A%2F%2Fsourceforge.net%2Fp%2Fseb%2Factivity%2F%3Fpage%3D0%26limit%3D100)
 
+## [Ubuntu-Linux Hotspot Package](https://github.com/lakinduakash/linux-wifi-hotspot)
 
+---
 
+#  To Clear Runtime SEB Issue
 
+### Fix 1: Clear Log files, Cache Temp, Log
+```
+C:\Users\admin\AppData\Local\SafeExamBrowser
+```
+### Fix 2: Turn on Location and Reset Time 
 
+---
 
-
-
-
+# [Air Crack](https://github.com/gokul2736/SEB/blob/main/aircrack.md)
 
 ## IPTV Git link
 ```
@@ -143,8 +224,11 @@ https://iptv-org.github.io/iptv/index.m3u
   ```
 ipconfig/flushdns
   ```
+```
+https://github.com/gokul2736/MOSDAC
+```
 
-
+---
 
 # Commands
 ## For Command line interface
